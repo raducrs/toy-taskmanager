@@ -6,19 +6,24 @@ import java.util.*;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Consumer;
-import java.util.stream.Collectors;
-import java.util.stream.StreamSupport;
+
 
 public class BaseTaskManager implements TaskManager {
 
     private final int capacity;
-    // TODO check if volatile is needed for int variables
     private volatile int size;
 
     protected final PIDPool pidPool;
 
     protected final LinkedHashMap<PID, Task> queue = new LinkedHashMap<>();
     protected final TreeMap<Priority, Map<PID,Task>> byPriority = new TreeMap<>(Priority.BY_PRIORITY);
+
+    // Since we are in control of creating the tasks we know that the insertion order of PID is not very different
+    // from the insertion order of FIFO (the FIFO order is almost PID sorted)
+    // In this case we could implement a version of sorting based on insertion sort that looks only k cells apart with
+    // a runtime of O(kn) where n is the list length (k<<n)
+    // For the scope of this exercise we will use this extra data structure,
+    // although it is not needed since FIFO and PID order are exactly the same, but we left to show how to handle another sortCriteria
     protected final TreeSet<Task> byPID = new TreeSet<>(Task.BY_PID_COMP);
 
     // we could make it stamped lock if we can guarantee increased performance, but let's not optimize early
@@ -52,7 +57,7 @@ public class BaseTaskManager implements TaskManager {
         Task task = null;
         try {
             task = new Task(pidPool.getPID(), priority, this);
-        } catch (PIDPoolFullException ex){
+        } catch (PIDPool.PIDPoolFullException ex){
             // log here
             return Optional.empty();
         }
@@ -94,10 +99,15 @@ public class BaseTaskManager implements TaskManager {
         try {
             // avoid concurrent modification exception
             var tasksToRemove = new ArrayList<>(queue.values());
-            // a bulk remove is o(n) while this is o(n lg(n)) because of the TreeSet
             for(var task: tasksToRemove){
-                kill(task);
+                // a bulk remove is o(n) while calling the kill method repeatedly is o(n lg(n)) because of the TreeSet
+                // kill(task);
+                queue.remove(task.pid());
+                task.kill();
+                pidPool.releasePID(task.pid());
             }
+            byPID.clear();
+            byPriority.forEach((p,t)->t.clear());
         }
         finally {
             rl.writeLock().unlock();
@@ -112,6 +122,7 @@ public class BaseTaskManager implements TaskManager {
             var tasksToRemove = new ArrayList<>(byPriority.getOrDefault(priority,Collections.emptyMap()).values());
             // we have reentrant locks so it is okay
             for(var task: tasksToRemove){
+                // we can not use bulk remove here and we will have O(lg(n)) cost per iteration
                 kill(task);
             }
         }
@@ -124,39 +135,25 @@ public class BaseTaskManager implements TaskManager {
     public void list(Consumer<Task> consumer, SortCriteria sortCriteria, SortOrder sortOrder) {
         rl.readLock().lock();
         try {
-            var st = switch (sortCriteria){
-                case FIFO -> {
-                    if (sortOrder == SortOrder.ASCENDING) {
-                        yield queue.entrySet().stream().map(Map.Entry::getValue);
-                    } else {
-                        // can not do any better than this without accessing internal state unfortunately (since we do not have descending iterators)
-                        var reversed = queue.entrySet().stream().map(Map.Entry::getValue).collect(Collectors.toList());
-                        Collections.reverse(reversed);
-                        yield reversed.stream();
-                    }
-                }
-                case PID -> {
-                    if (sortOrder == SortOrder.ASCENDING) {
-                        yield StreamSupport.stream(Spliterators.spliteratorUnknownSize(byPID.iterator(), 0), false);
-                    } else {
-                        yield StreamSupport.stream(Spliterators.spliteratorUnknownSize(byPID.descendingIterator(), 0), false);
-                    }
-                }
-                case PRIORITY -> {
-                    if (sortOrder == SortOrder.ASCENDING) {
-                        yield byPriority.entrySet().stream().flatMap(kv->kv.getValue().values().stream());
-                    } else {
-                        yield byPriority.descendingMap().entrySet().stream().flatMap(kv->kv.getValue().values().stream());
-                    }
-                }
-                default -> throw new UnsupportedOperationException("not implemented");
-            };
-
-           st.forEach(consumer);
+            // moved out responsibility of views from task manager (the classes are still tightly coupled however)
+            TasksView.fromTaskManager(this,sortCriteria,sortOrder).list(consumer);
         }
         finally {
             rl.readLock().unlock();
         }
 
+    }
+
+     // package private methods to be accessible only TasksView
+     LinkedHashMap<PID, Task> orderedFIFOView() {
+        return queue;
+    }
+
+    TreeSet<Task> orderedPIDView() {
+        return byPID;
+    }
+
+    TreeMap<Priority, Map<PID, Task>> orderedPriorityView() {
+        return byPriority;
     }
 }

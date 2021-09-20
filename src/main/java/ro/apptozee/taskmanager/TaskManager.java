@@ -1,9 +1,6 @@
 package ro.apptozee.taskmanager;
 
-import ro.apptozee.taskmanager.vo.Task;
-import ro.apptozee.taskmanager.vo.Priority;
-import ro.apptozee.taskmanager.vo.SortCriteria;
-import ro.apptozee.taskmanager.vo.SortOrder;
+import ro.apptozee.taskmanager.vo.*;
 
 import java.util.Optional;
 import java.util.function.Consumer;
@@ -31,5 +28,14 @@ public interface TaskManager {
     }
 
     void list(Consumer<Task> consumer, SortCriteria sortCriteria, SortOrder sortOrder);
+
+    static TaskManager withStrategy(Strategy strategy, int capacity){
+        return switch (strategy){
+            case BLOCK -> new BaseTaskManager(capacity, new PIDPool());
+            case FIFO -> new FavorNewTaskManager(capacity, new PIDPool());
+            case PRIORITY -> new PriorityTaskManager(capacity, new PIDPool());
+            default -> throw new UnsupportedOperationException(strategy+ " not implemented");
+        };
+    }
 
 }

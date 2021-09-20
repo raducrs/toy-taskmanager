@@ -2,8 +2,6 @@ package ro.apptozee.taskmanager;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.invocation.InvocationOnMock;
-import org.mockito.stubbing.Answer;
 import ro.apptozee.taskmanager.vo.PID;
 import ro.apptozee.taskmanager.vo.Priority;
 import ro.apptozee.taskmanager.vo.Task;
@@ -339,7 +337,7 @@ class BaseTaskManagerTest {
             if (callCounter.get() < 3){
                 return new PID(callCounter.getAndAdd(1));
             }
-            throw new PIDPoolFullException();
+            throw new PIDPool.PIDPoolFullException();
         });
 
         taskManager = new BaseTaskManager(CAPACITY,mockPIDPool);
