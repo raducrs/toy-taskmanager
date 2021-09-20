@@ -2,21 +2,26 @@ package ro.apptozee.taskmanager;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.invocation.InvocationOnMock;
+import org.mockito.stubbing.Answer;
 import ro.apptozee.taskmanager.vo.PID;
 import ro.apptozee.taskmanager.vo.Priority;
 import ro.apptozee.taskmanager.vo.Task;
 
 import java.util.Arrays;
 import java.util.LinkedList;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class BaseTaskManagerTest {
 
-    protected static final int CAPACITY = 5;
+    private static final int CAPACITY = 5;
 
-    protected TaskManager taskManager;
+    private TaskManager taskManager;
 
     @BeforeEach
     void setUp() {
@@ -312,6 +317,41 @@ class BaseTaskManagerTest {
                         new Task(new PID(8), Priority.MEDIUM,taskManager),
                         new Task(new PID(9), Priority.HIGH,taskManager)
                 ));
+    }
+
+    @Test()
+    public void canNotInstantiateAZeroCapacityTaskManager(){
+        //when instantiating a task manager with no capacity
+        // then we should fail
+        assertThrows(IllegalArgumentException.class, ()->{
+            taskManager = new BaseTaskManager(0,new PIDPool());
+        });
+    }
+
+    @Test
+    public void canNotAddWhenPIDPoolFails(){
+        //given a task manager not at capacity with a depleted PIDPool
+        PIDPool mockPIDPool = mock(PIDPool.class);
+        // we are using this to avoid creating a mock integer wrap class because of lambda closure
+        // and only being able to use effective final objects
+        AtomicInteger callCounter = new AtomicInteger(0);
+        when(mockPIDPool.getPID()).thenAnswer(invocationOnMock -> {
+            if (callCounter.get() < 3){
+                return new PID(callCounter.getAndAdd(1));
+            }
+            throw new PIDPoolFullException();
+        });
+
+        taskManager = new BaseTaskManager(CAPACITY,mockPIDPool);
+        taskManager.add(Priority.HIGH);
+        taskManager.add(Priority.LOW);
+        taskManager.add(Priority.MEDIUM);
+
+        // when we add new task
+        var shouldFailOpt = taskManager.add(Priority.HIGH);
+
+        // then it should fail
+        assertTrue(shouldFailOpt.isEmpty());
     }
 
 }

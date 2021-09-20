@@ -13,18 +13,21 @@ public class BaseTaskManager implements TaskManager {
 
     private final int capacity;
     // TODO check if volatile is needed for int variables
-    private volatile int size; // TODO offer accessors to subclasses
+    private volatile int size;
 
     protected final PIDPool pidPool;
 
-    private final LinkedHashMap<PID, Task> queue = new LinkedHashMap<>();
-    private final TreeMap<Priority, Map<PID,Task>> byPriority = new TreeMap<>(Priority.BY_PRIORITY);
-    private final TreeSet<Task> byPID = new TreeSet<>(Task.BY_PID_COMP);
+    protected final LinkedHashMap<PID, Task> queue = new LinkedHashMap<>();
+    protected final TreeMap<Priority, Map<PID,Task>> byPriority = new TreeMap<>(Priority.BY_PRIORITY);
+    protected final TreeSet<Task> byPID = new TreeSet<>(Task.BY_PID_COMP);
 
     // we could make it stamped lock if we can guarantee increased performance, but let's not optimize early
     ReadWriteLock rl = new ReentrantReadWriteLock(true);
 
     public BaseTaskManager(int capacity, PIDPool pidPool) {
+        if (capacity < 1){
+            throw new IllegalArgumentException("Capacity must be greater than 0");
+        }
         this.capacity = capacity;
         this.pidPool = pidPool;
     }
@@ -34,24 +37,35 @@ public class BaseTaskManager implements TaskManager {
     public Optional<Task> add(Priority priority) {
         rl.writeLock().lock();
         try {
-            if (size == capacity){
+            if (isFull()){
                 return Optional.empty();
             }
-            var task = new Task(pidPool.getPID(),priority,this);
+
             // atomic modification of all structures guaranteed by the read-write lock
-            addInternally(task);
-            return Optional.of(task);
+            return addInternally(priority);
         } finally {
             rl.writeLock().unlock();
         }
     }
 
-    private void addInternally(Task task){
+    protected Optional<Task> addInternally(Priority priority){
+        Task task = null;
+        try {
+            task = new Task(pidPool.getPID(), priority, this);
+        } catch (PIDPoolFullException ex){
+            // log here
+            return Optional.empty();
+        }
         queue.put(task.pid(),task);
         byPriority.computeIfAbsent(task.priority(),(p) -> new LinkedHashMap<>());
         byPriority.get(task.priority()).put(task.pid(),task);
         byPID.add(task);
         size++;
+        return Optional.of(task);
+    }
+
+    protected boolean isFull(){
+        return size == capacity;
     }
 
     @Override

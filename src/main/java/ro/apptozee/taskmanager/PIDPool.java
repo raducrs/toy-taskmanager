@@ -9,11 +9,14 @@ import java.util.concurrent.atomic.AtomicInteger;
   Should be an interface implementation, but to keep this exercise short it is a concrete class
  */
 class PIDPool {
-    private final AtomicInteger nextPID = new AtomicInteger(0);
+    // we are only using it with mutual exclusion -> no need for AtomicInteger
+    private int nextPID = 0;
 
     public PID getPID() {
-        // TODO check overflow
-        return new PID(nextPID.getAndAdd(1));
+        if(nextPID == Integer.MAX_VALUE){
+            throw new PIDPoolFullException();
+        }
+        return new PID(nextPID++);
     }
 
     public void releasePID(PID pid){
