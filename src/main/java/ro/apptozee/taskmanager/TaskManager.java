@@ -1,6 +1,6 @@
 package ro.apptozee.taskmanager;
 
-import ro.apptozee.taskmanager.Task;
+import ro.apptozee.taskmanager.vo.Task;
 import ro.apptozee.taskmanager.vo.Priority;
 import ro.apptozee.taskmanager.vo.SortCriteria;
 import ro.apptozee.taskmanager.vo.SortOrder;

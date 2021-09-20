@@ -7,7 +7,7 @@ public enum Priority  {
     MEDIUM(10),
     HIGH(20);
 
-    private static final Comparator<Priority> COMPARATOR = Comparator.comparing(Priority::getNumericalPriority);
+    public static final Comparator<Priority> BY_PRIORITY = Comparator.comparing(Priority::getNumericalPriority);
 
     private final int numericalPriority;
 
