@@ -16,14 +16,21 @@ public class BaseTaskManager implements TaskManager {
     protected final PIDPool pidPool;
 
     protected final LinkedHashMap<PID, Task> queue = new LinkedHashMap<>();
+
+    // The added benefit of these data structure is debatable since sorting the queue based on priority using
+    // a bucket sorting algorithm is still O(n) runtime when creating the view, but with 2 traversals and
+    // would require O(n) space for each individual request
+
+    // Likewise, when used by killByPriority the worst case running time is still O(n) which is no different from
+    // traversal of the queue and checking the priority of each individual task
     protected final TreeMap<Priority, Map<PID,Task>> byPriority = new TreeMap<>(Priority.BY_PRIORITY);
 
     // Since we are in control of creating the tasks we know that the insertion order of PID is not very different
     // from the insertion order of FIFO (the FIFO order is almost PID sorted)
-    // In this case we could implement a version of sorting based on insertion sort that looks only k cells apart with
+    // In this case we could implement a version of sorting based on insertion sort that looks on average only k cells apart with
     // a runtime of O(kn) where n is the list length (k<<n)
     // For the scope of this exercise we will use this extra data structure,
-    // although it is not needed since FIFO and PID order are exactly the same, but we left to show how to handle another sortCriteria
+    // although it is not needed since FIFO and PID order are exactly the same, but we left it to show how to handle another sortCriteria
     protected final TreeSet<Task> byPID = new TreeSet<>(Task.BY_PID_COMP);
 
     // we could make it stamped lock if we can guarantee increased performance, but let's not optimize early
