@@ -13,7 +13,8 @@ public record Task(PID pid, Priority priority, TaskManager taskManager) {
     public void kill(){
         // code that performs the actual kill command to be inserted here
 
-        // TODO avoid loop
+        // there is a potential infinite loop here
+        // we avoided it by making sure we remove the task from internal tracking before issuing the kill command
         this.taskManager.kill(this);
     }
 

@@ -88,9 +88,10 @@ class TM {
 }
 class Storage {
     public Storage add(Task t){
-        var copy = data.copy();
-        copy.add(t);
-        return new Storage(data);
+        // Task is immutable so the new data structure does not need to make deep copies
+        var copy = datastructure.copy();
+        datastructure.add(t);
+        return new Storage(datastructure);
     }
     ...
 }
@@ -102,12 +103,89 @@ class Storage {
 We could use concurrent data structures, but there are a few caveats.
 
 If we use multiple of them we still need to synchronize. All changes need to be executed atomically, otherwise a reader could obtain
-views which are inconsistent (when only a part of data structures would have been updated). 
+views which are inconsistent (when only a part of data structures would have been updated).
 
 If we need to use only one, then different views by sorting criteria would need to perform additional work (even a full sort of data)
 which defeats the purpose of highly available readers.
 
-These data structures provide weak guarantees when iterated. One particular issue is that they could lead to unbounded 
+These data structures provide weak guarantees when iterated. One particular issue is that they could lead to unbounded
 iterators. If we use a concurrent linked list implementation we could avoid this by using a descendingIterator but this
 obviously offers staled data as we can not see what was added in the meantime.
-            
+
+Like mentioned in comments in [`BaseTaskManager`](src/main/java/ro/apptozee/taskmanager/BaseTaskManager.java) we could 
+work only with the `LinkedHashMap`, but there is no alternative concurrent data structure. We can use a `ConcurrentLinkedDeque`
+(or `ConcurrentLinkedQueue` if not using the descending iterator technique). The caveat is that removal of 
+a task now would require traversal of the queue and would be `O(n)`. To avoid this we can wrap the `Task` internally with a
+mutable field that lazily marks deletion. The actual deletion is performed when
+we iterate over the queue (in `killAll`, `list`, etc) or we amortize this in the `add` function performing a traversal every time
+the queue doubles in size because of the lazily marked tasks.
+
+We have not considered synchronized data structures since there is no benefit (they block both on reads and writes)
+
+### Caching and read heavy
+
+At least when using the immutable internal storage we can easily create cached views. A cached view is attached to a particular
+snapshot (to be careful wih memory leaks if threads hold on to the view). This would be a skeleton implementation
+```java
+
+class Storage{
+    private volatile StorageTaskView view;
+    ...
+    public StorageTaskView view(){
+        // the view will cache individual views
+        if (view == null){
+            synchronized (this){
+                if (view == null){
+                    view = new StorageTaskView(this);
+                }
+            }
+        }
+        return view;
+    }
+}
+
+class StorageTaskView{
+
+    static record Pair(SortCriteria sortCriteria, SortOrder order){};
+    Map<Pair,Pair> granularLocks = new HashMap<>();
+
+    // memory leak warning
+    Storage storage;
+    Map<Pair,TasksView> cachedViews = new ConcurrentHashMap<>();
+    
+
+    public TasksView list(SortCriteria sortCriteria, SortOrder order){
+        // we want to not block when different threads are requesting different views
+        // for this we are using granular locks
+        var pair = granularLocks.get(new Pair(sortCriteria,order));
+        if (pair == null){
+            synchronized (granularLocks){
+                pair = granularLocks.get(new Pair(sortCriteria,order));
+                if (pair == null){
+                    pair = new Pair(sortCriteria,order);
+                    granularLocks.put(new Pair(sortCriteria,order),pair);
+                }
+            }
+        }
+        var view = cachedViews.get(pair);
+        if (view == null){
+            synchronized (pair){
+                view = cachedViews.get(pair);
+                if (view == null){
+                    view = TasksView.fromStorage(storage,sortCriteria,order);
+                    cachedViews.put(pair,view);
+                }
+            }
+        }
+        return view;
+
+    }
+}
+```
+
+Similar techniques can be applied even if we do not work with an immutable storage, but require creating 
+a copy of data structures first. 
+
+This optimization should not be applied if we do not expect a read heavy use case, although we get it for free when using 
+an immutable data storage.
+
